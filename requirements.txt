@@ -1,0 +1,10 @@
+flask
+flask
+langchain==0.3.18
+langchain-community==0.3.17
+langchain-openai
+openai
+qdrant-client
+tiktoken
+sentence-transformers
+sentence-transformers
