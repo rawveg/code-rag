@@ -1,13 +1,42 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Code Query</title>
-</head>
-<body>
-    <h1>Ask a question about your code</h1>
-    <form method="POST" action="/query">
-        <textarea name="query" rows="5" cols="50"></textarea><br>
-        <button type="submit">Submit</button>
-    </form>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>What do you want to know?</h1>
+    
+    {% if not docsearch %}
+        <div class="no-index-message">
+            <p>No code index available</p>
+            <form action="/admin/reindex" method="post">
+                <button type="submit" class="primary-button">Index Now</button>
+            </form>
+        </div>
+    {% endif %}
+    
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <div class="search-container">
+        <form action="/query" method="get">
+            <textarea name="query" rows="5" placeholder="Ask anything..."></textarea>
+            <div class="controls">
+                <button type="submit">Submit</button>
+            </div>
+        </form>
+    </div>
+    
+    <div class="admin-controls">
+        <form action="/admin/reindex" method="post" style="display: inline;">
+            <button type="submit">Force Reindex</button>
+        </form>
+        <form action="/admin/clear" method="post" style="display: inline;">
+            <button type="submit">Clear Index</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,19 +1,237 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Code Query Results</title>
-</head>
-<body>
-    <h1>Results for: {{ query }}</h1>
-    {% if results %}
-        <ul>
-            {% for result in results %}
-                <li>{{ result }}</li>
-            {% endfor %}
-        </ul>
+{% extends "base.html" %}
+
+{% block extra_head %}
+    <style>
+        /* Layout */
+        .search-bar {
+            position: sticky;
+            top: 0;
+            padding: 1em;
+            background: inherit;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2em;
+            z-index: 100;
+        }
+
+        .back-button {
+            text-decoration: none;
+            color: inherit;
+            font-size: 0.9em;
+        }
+
+        .current-query {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        /* Container for search form */
+        .container {
+            width: 100%;
+            max-width: 800px;
+            margin: 2em auto;
+            text-align: center;
+            padding: 0 20px;
+        }
+
+        /* Results styling */
+        .results {
+            text-align: left;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            margin-top: 3em;
+        }
+
+        .result-block {
+            margin: 2em 0;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .result-header {
+            padding: 0.8em;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .filepath {
+            font-family: monospace;
+            font-weight: 500;
+        }
+
+        /* Code block styling */
+        .code-block {
+            position: relative;
+            margin: 0;
+            padding: 0;
+            background: #2d2d2d;
+            overflow-x: auto;
+        }
+
+        .code-copy {
+            position: absolute;
+            top: 0.5em;
+            right: 0.5em;
+            z-index: 10;
+        }
+
+        .back-link {
+            display: block;
+            margin-bottom: 2em;
+            color: inherit;
+            text-decoration: none;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        
+        .back-link:hover {
+            opacity: 1;
+        }
+
+        /* Complete Pygments styles */
+        pre { line-height: 125%; }
+        td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+        span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+        td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+        span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+        .source .hll { background-color: #49483e }
+        .source { background: #272822; color: #f8f8f2 }
+        .source .c { color: #959077 } 
+        .source .err { color: #ed007e; background-color: #1e0010 }
+        .source .esc { color: #f8f8f2 }
+        .source .g { color: #f8f8f2 }
+        .source .k { color: #66d9ef }
+        .source .l { color: #ae81ff }
+        .source .n { color: #f8f8f2 }
+        .source .o { color: #ff4689 }
+        .source .x { color: #f8f8f2 }
+        .source .p { color: #f8f8f2 }
+        .source .ch { color: #959077 }
+        .source .cm { color: #959077 }
+        .source .cp { color: #959077 }
+        .source .cpf { color: #959077 }
+        .source .c1 { color: #959077 }
+        .source .cs { color: #959077 }
+        .source .gd { color: #ff4689 }
+        .source .ge { color: #f8f8f2; font-style: italic }
+        .source .gr { color: #f8f8f2 }
+        .source .gh { color: #f8f8f2 }
+        .source .gi { color: #a6e22e }
+        .source .go { color: #66d9ef }
+        .source .gp { color: #ff4689; font-weight: bold }
+        .source .gs { color: #f8f8f2; font-weight: bold }
+        .source .gu { color: #959077 }
+        .source .gt { color: #f8f8f2 }
+        .source .kc { color: #66d9ef }
+        .source .kd { color: #66d9ef }
+        .source .kn { color: #ff4689 }
+        .source .kp { color: #66d9ef }
+        .source .kr { color: #66d9ef }
+        .source .kt { color: #66d9ef }
+        .source .ld { color: #e6db74 }
+        .source .m { color: #ae81ff }
+        .source .s { color: #e6db74 }
+        .source .na { color: #a6e22e }
+        .source .nb { color: #f8f8f2 }
+        .source .nc { color: #a6e22e }
+        .source .no { color: #66d9ef }
+        .source .nd { color: #a6e22e }
+        .source .ni { color: #f8f8f2 }
+        .source .ne { color: #a6e22e }
+        .source .nf { color: #a6e22e }
+        .source .nl { color: #f8f8f2 }
+        .source .nn { color: #f8f8f2 }
+        .source .nx { color: #a6e22e }
+        .source .py { color: #f8f8f2 }
+        .source .nt { color: #ff4689 }
+        .source .nv { color: #f8f8f2 }
+        .source .ow { color: #ff4689 }
+        .source .w { color: #f8f8f2 }
+        .source .mb { color: #ae81ff }
+        .source .mf { color: #ae81ff }
+        .source .mh { color: #ae81ff }
+        .source .mi { color: #ae81ff }
+        .source .mo { color: #ae81ff }
+        .source .sa { color: #e6db74 }
+        .source .sb { color: #e6db74 }
+        .source .sc { color: #e6db74 }
+        .source .dl { color: #e6db74 }
+        .source .sd { color: #e6db74 }
+        .source .s2 { color: #e6db74 }
+        .source .se { color: #ae81ff }
+        .source .sh { color: #e6db74 }
+        .source .si { color: #e6db74 }
+        .source .sx { color: #e6db74 }
+        .source .sr { color: #e6db74 }
+        .source .s1 { color: #e6db74 }
+        .source .ss { color: #e6db74 }
+        .source .bp { color: #f8f8f2 }
+        .source .fm { color: #a6e22e }
+        .source .vc { color: #f8f8f2 }
+        .source .vg { color: #f8f8f2 }
+        .source .vi { color: #f8f8f2 }
+        .source .vm { color: #f8f8f2 }
+        .source .il { color: #ae81ff }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <a href="/" class="back-link">← Back to Search</a>
+    <h1>What do you want to know?</h1>
+    
+    <div class="search-container">
+        <form action="/query" method="get">
+            <textarea name="query" rows="5" placeholder="Ask anything...">{{ query }}</textarea>
+            <div class="controls">
+                <button type="submit">Submit</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="results">
+    {% if results and results[0].filepath != 'No results' %}
+        {% for result in results %}
+            <div class="result-item">
+                <div class="file-header">
+                    <span class="filepath">{{ result.filepath }}</span>
+                    <button class="copy-path" onclick="copyPath('{{ result.filepath }}')">Copy Path</button>
+                </div>
+                <div class="code-block">
+                    {{ result.content | safe }}
+                </div>
+            </div>
+        {% endfor %}
     {% else %}
-        <p>No results found.</p>
+        <div class="no-results">
+            <p>No relevant code found in your codebase.</p>
+            <p>Try:</p>
+            <ul>
+                <li>Using different keywords</li>
+                <li>Being more specific</li>
+                <li>Checking if the code has been indexed</li>
+            </ul>
+        </div>
     {% endif %}
-    <a href="/">Back to query</a>
-</body>
-</html>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+    <script>
+        function copyText(button, text) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            });
+        }
+    </script>
+{% endblock %}

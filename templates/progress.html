@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="container">
+        <h1>Indexing Progress</h1>
+
+        <div class="progress-container">
+            <div class="progress-bar {% if indexing_progress.phase == 'vectors' %}indeterminate{% endif %}">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="status-message" id="status-message">{{ indexing_progress.message }}</div>
+        </div>
+
+        <details class="indexed-files">
+            <summary>Details ({{ indexing_progress.indexed_files|length }} files)</summary>
+            <div class="files-list">
+                {% for file in indexing_progress.indexed_files %}
+                    <div class="file-entry">{{ file }}</div>
+                {% endfor %}
+            </div>
+        </details>
+
+        <div style="margin-top: 2em;">
+            <a href="/" class="back-button">Back to Search</a>
+        </div>
+    </div>
+
+    <script>
+        function updateProgress() {
+            fetch('/admin/progress', {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Progress update:', data);
+                
+                const progressBar = document.querySelector('.progress-bar');
+                const progressFill = document.getElementById('progress-fill');
+                const statusMessage = document.getElementById('status-message');
+                const detailsSection = document.querySelector('.indexed-files');
+                const filesList = document.querySelector('.files-list');
+                const summary = document.querySelector('.indexed-files summary');
+
+                console.log('Current phase:', data.phase);
+                
+                // Update progress bar
+                if (data.phase === 'files') {
+                    progressBar.classList.remove('indeterminate');
+                    const percent = (data.current / data.total * 100) || 0;
+                    progressFill.style.width = percent + '%';
+                } else if (data.phase === 'vectors') {
+                    console.log('Switching to indeterminate mode');
+                    progressBar.classList.add('indeterminate');
+                }
+
+                // Update message
+                statusMessage.textContent = data.message;
+
+                // Update files list
+                summary.textContent = `Details (${data.indexed_files.length} files)`;
+                filesList.innerHTML = data.indexed_files.map(file => 
+                    `<div class="file-entry">${file}</div>`
+                ).join('');
+
+                // Handle completion
+                if (data.phase === 'complete') {
+                    console.log('Indexing complete, redirecting...');
+                    setTimeout(() => window.location.href = '/', 1000);
+                } else if (data.status !== 'error') {
+                    setTimeout(updateProgress, 500);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+        
+        updateProgress();
+    </script>
+{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .container {
+        margin-top: 10vh;
+    }
+
+    .progress-container {
+        width: 100%;
+        text-align: left;
+        margin-top: 2em;
+    }
+
+    .progress-bar {
+        width: 100%;
+        height: 20px;
+        background-color: #f0f0f0;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 1em;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background-color: #4CAF50;
+        width: 0%;
+        transition: width 0.5s ease-in-out;
+    }
+
+    .status-message {
+        font-family: monospace;
+        font-size: 0.9em;
+        opacity: 0.8;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .back-button {
+        display: inline-block;
+        padding: 8px 16px;
+        color: inherit;
+        text-decoration: none;
+        border-radius: 4px;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    }
+
+    .back-button:hover {
+        opacity: 1;
+    }
+
+    .indexed-files {
+        margin-top: 2em;
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 4px;
+        padding: 1em;
+    }
+
+    .indexed-files summary {
+        cursor: pointer;
+        user-select: none;
+        padding: 0.5em;
+    }
+
+    .indexed-files summary:hover {
+        opacity: 0.8;
+    }
+
+    .files-list {
+        margin-top: 1em;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-entry {
+        font-family: monospace;
+        padding: 0.25em 0.5em;
+        font-size: 0.9em;
+    }
+
+    .file-entry:nth-child(odd) {
+        background: rgba(0, 0, 0, 0.05);
+    }
+
+    .progress-bar.indeterminate {
+        position: relative;
+        background-color: #f0f0f0;
+    }
+
+    .progress-bar.indeterminate::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 30%;
+        background-color: #4CAF50;
+        animation: indeterminate 1.5s infinite ease-in-out;
+    }
+
+    @keyframes indeterminate {
+        0% {
+            left: -30%;
+        }
+        100% {
+            left: 100%;
+        }
+    }
+
+    /* Hide the progress-fill when in indeterminate mode */
+    .progress-bar.indeterminate .progress-fill {
+        display: none;
+    }
+</style>
+{% endblock %} 

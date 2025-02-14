@@ -1,0 +1,43 @@
+<style>
+/* Base styles for code blocks */
+.source { 
+    background: #272822; 
+    color: #f8f8f2;
+    margin: 10px 0;
+    border-radius: 4px;
+    overflow: auto;
+}
+
+/* Line numbers column */
+.source .linenos { 
+    color: #8f908a; 
+    background-color: #232323; 
+    padding: 0 10px;
+    border-right: 1px solid #3c3d37;
+    user-select: none;
+    text-align: right;
+}
+
+/* Actual code area */
+.source .code { 
+    padding: 0 10px;
+    display: table-cell;
+    width: 100%;
+}
+
+/* Syntax highlighting colors */
+.source .keyword { color: #f92672; }
+.source .string { color: #e6db74; }
+.source .number { color: #ae81ff; }
+.source .comment { color: #75715e; }
+.source .operator { color: #f8f8f2; }
+.source .function { color: #a6e22e; }
+</style>
+
+<div class="results">
+    {% for result in results %}
+        <div class="result">
+            {{ result.code | safe }}
+        </div>
+    {% endfor %}
+</div> 
