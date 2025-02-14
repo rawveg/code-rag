@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Settings</h1>
+    
+    <form method="POST" action="{{ url_for('save_settings') }}">
+        <div class="settings-section">
+            <h2>Directory Exclusions</h2>
+            <p class="help-text">Directories to skip during indexing (one per line)</p>
+            <textarea name="skip_dirs" rows="10">{{ settings.skip_dirs | join('\n') }}</textarea>
+        </div>
+
+        <div class="settings-section">
+            <h2>File Patterns</h2>
+            <p class="help-text">File extensions to include (one per line, start with dot)</p>
+            <textarea name="file_patterns" rows="5">{{ settings.file_patterns | join('\n') }}</textarea>
+        </div>
+
+        <div class="settings-section">
+            <h2>Priority Paths</h2>
+            <p class="help-text">Directories to prioritize during search (one per line)</p>
+            <textarea name="priority_paths" rows="5">{{ settings.priority_paths | join('\n') }}</textarea>
+        </div>
+
+        <div class="button-group">
+            <button type="submit" class="primary">Save Settings</button>
+            <button type="button" onclick="resetDefaults()" class="secondary">Reset to Defaults</button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .settings-section {
+        margin-bottom: 2em;
+    }
+    
+    .settings-section h2 {
+        font-size: 1.2em;
+        margin-bottom: 0.5em;
+    }
+    
+    .help-text {
+        font-size: 0.9em;
+        opacity: 0.8;
+        margin-bottom: 0.5em;
+    }
+    
+    textarea {
+        width: 100%;
+        font-family: monospace;
+        padding: 0.5em;
+        background: rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+    }
+    
+    .button-group {
+        margin-top: 2em;
+        display: flex;
+        gap: 1em;
+    }
+    
+    button.secondary {
+        background: rgba(255, 255, 255, 0.1);
+    }
+</style>
+
+<script>
+function resetDefaults() {
+    if (confirm('Are you sure you want to reset all settings to defaults?')) {
+        fetch('/admin/settings/reset', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                }
+            });
+    }
+}
+</script>
+{% endblock %} 

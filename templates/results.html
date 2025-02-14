@@ -205,6 +205,7 @@
                 </div>
                 <div class="code-block">
                     {{ result.content | safe }}
+                    <button class="copy-button code-copy" onclick="copyText(this, `{{ result.raw_content }}`)">Copy Code</button>
                 </div>
             </div>
         {% endfor %}
@@ -224,8 +225,24 @@
 
 {% block extra_scripts %}
     <script>
+        function copyPath(path) {
+            navigator.clipboard.writeText(path).then(() => {
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            });
+        }
+
         function copyText(button, text) {
-            navigator.clipboard.writeText(text).then(() => {
+            // Create a temporary div to strip HTML tags
+            const temp = document.createElement('div');
+            temp.innerHTML = text;
+            const cleanText = temp.textContent || temp.innerText;
+
+            navigator.clipboard.writeText(cleanText).then(() => {
                 const originalText = button.textContent;
                 button.textContent = 'Copied!';
                 setTimeout(() => {

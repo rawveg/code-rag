@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, flash, redirect, url_for, jsonify
+from flask import Flask, request, render_template, flash, redirect, url_for, jsonify, session
 import logging
 import os
 from src.embeddings import SentenceTransformerEmbeddings, format_code_for_display
@@ -66,14 +66,7 @@ SKIP_DIRS = {
 
 # File patterns to look for
 RELEVANT_FILE_PATTERNS = [
-    'auth', 'session', 'login', 'user', 'jwt', 'token',  # Authentication related
-    'middleware', 'routes', 'views', 'controllers',  # Web framework files
-    'security', 'permissions',  # Security related
-    'app', 'main', 'index',  # Main application files
-    'flask_jwt', 'flask_login',  # Flask specific
-    'auth.py', 'authentication.py',  # Common auth file names
-    'api', 'rest', 'graphql',  # API related
-    '.py', '.js', '.ts'  # Include all Python/JS/TS files as potentially relevant
+    '.py', '.js', '.ts', '.php', '.html', '.twig', '.yaml', '.yml', '.json'  # Just file extensions
 ]
 
 # Paths to look for
@@ -110,9 +103,17 @@ VECTOR_MESSAGES = [
     'Creating vector index... Your patience is appreciated'
 ]
 
+# Default settings
+DEFAULT_SETTINGS = {
+    'skip_dirs': list(SKIP_DIRS),
+    'file_patterns': list(RELEVANT_FILE_PATTERNS),
+    'priority_paths': list(RELEVANT_PATHS)
+}
+
 # Add debug logging for directory skipping
 def should_skip_directory(dirname):
-    should_skip = dirname.lower() in SKIP_DIRS or 'cache' in dirname.lower()
+    settings = session.get('settings', DEFAULT_SETTINGS)
+    should_skip = dirname.lower() in settings['skip_dirs'] or 'cache' in dirname.lower()
     if should_skip:
         logger.debug(f"Skipping directory: {dirname}")
     return should_skip
@@ -148,7 +149,7 @@ def initialize_search():
                 logger.info(f"Filtered directories from {len(original_dirs)} to {len(dirs)}")
             
             # Log files being counted
-            valid_files = [f for f in files if f.endswith(('.php', '.js', '.ts', '.html', '.twig', '.py', '.yaml', '.yml', '.json'))]
+            valid_files = [f for f in files if f.endswith(tuple(session.get('settings', DEFAULT_SETTINGS)['file_patterns']))]
             if valid_files:
                 logger.info(f"Found files in {root}: {', '.join(valid_files)}")
             total_files += len(valid_files)
@@ -167,7 +168,7 @@ def initialize_search():
             dirs[:] = [d for d in dirs if not should_skip_directory(d)]
             
             for file in files:
-                if file.endswith(('.php', '.js', '.ts', '.html', '.twig', '.py', '.yaml', '.yml', '.json')):
+                if file.endswith(tuple(session.get('settings', DEFAULT_SETTINGS)['file_patterns'])):
                     filepath = os.path.join(root, file)
                     rel_path = os.path.relpath(filepath, repo_path)
                     
@@ -251,27 +252,27 @@ def query():
         flash("No index available. Please index your codebase first.", "error")
         return redirect(url_for('index'))
     try:
-        enhanced_query = f"{query} jwt token authentication"
-        docs = docsearch.similarity_search_with_score(enhanced_query, k=10)
+        # Remove the forced JWT context
+        docs = docsearch.similarity_search_with_score(query, k=10)
         logger.info(f"Found {len(docs)} initial results")
         
-        # Prepare results with more structure
+        # Prepare results with more relaxed filtering
         results = []
         seen = set()
         for doc, score in docs:
-            content_lower = doc.page_content.lower()
-            if ('jwt' in content_lower or 'token' in content_lower) and score < 0.3:
+            if score < 0.5:  # Adjust threshold to be more lenient
                 content = doc.page_content.strip()
                 if content not in seen:
                     seen.add(content)
                     formatted_content = format_code_for_display(
                         content, 
-                        'php',
+                        'php',  # You might want to detect language from file extension
                         line_start=doc.metadata.get('line_start', 1)
                     )
                     results.append({
                         'filepath': doc.metadata.get('source', 'unknown'),
                         'content': formatted_content,
+                        'raw_content': content,  # Store the unformatted code
                         'line_start': doc.metadata.get('line_start', 1),
                         'line_end': doc.metadata.get('line_end', 1),
                         'score': score
@@ -405,6 +406,33 @@ def show_progress():
         return jsonify(response)
     else:
         return render_template('progress.html', indexing_progress=indexing_progress)
+
+@app.route('/admin/settings')
+def show_settings():
+    # Get current settings or use defaults
+    settings = session.get('settings', DEFAULT_SETTINGS)
+    return render_template('settings.html', settings=settings)
+
+@app.route('/admin/settings/save', methods=['POST'])
+def save_settings():
+    settings = {
+        'skip_dirs': request.form.get('skip_dirs', '').splitlines(),
+        'file_patterns': request.form.get('file_patterns', '').splitlines(),
+        'priority_paths': request.form.get('priority_paths', '').splitlines()
+    }
+    
+    # Clean up empty lines
+    for key in settings:
+        settings[key] = [x.strip() for x in settings[key] if x.strip()]
+    
+    session['settings'] = settings
+    flash('Settings saved successfully', 'success')
+    return redirect(url_for('show_settings'))
+
+@app.route('/admin/settings/reset', methods=['POST'])
+def reset_settings():
+    session['settings'] = DEFAULT_SETTINGS.copy()
+    return jsonify({'success': True})
 
 if __name__ == '__main__':
     try:

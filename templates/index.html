@@ -2,6 +2,18 @@
 
 {% block content %}
 <div class="container">
+    <div class="centered-logo">
+        <a href="/" class="logo-container large">
+            <img src="{{ url_for('static', filename='images/logo-dark.png') }}" 
+                 class="dark-mode-logo" 
+                 alt="CODE-RAG Logo">
+            <img src="{{ url_for('static', filename='images/logo-light.png') }}" 
+                 class="light-mode-logo" 
+                 alt="CODE-RAG Logo">
+            <span class="logo-text">CODE-RAG</span>
+        </a>
+    </div>
+
     <h1>What do you want to know?</h1>
     
     {% if not docsearch %}

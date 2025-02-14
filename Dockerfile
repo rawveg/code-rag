@@ -2,16 +2,19 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
+# Install git and build essentials for sentence-transformers
+RUN apt-get update && \
+    apt-get install -y git build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir pygments==2.17.2
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the source code
-COPY src/ /app/src/
-COPY app.py .
-COPY templates/ /app/templates/
+# Pre-download the sentence transformer model
+RUN python -c "from sentence_transformers import SentenceTransformer; \
+    model = SentenceTransformer('all-MiniLM-L6-v2'); \
+    print('Model downloaded successfully')"
 
-# Update Python path to include src directory
-ENV PYTHONPATH=/app
+COPY . .
 
 CMD ["python", "app.py"]
