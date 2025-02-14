@@ -201,7 +201,7 @@
             <div class="result-item">
                 <div class="file-header">
                     <span class="filepath">{{ result.filepath }}</span>
-                    <button class="copy-path" onclick="copyPath('{{ result.filepath }}')">Copy Path</button>
+                    <button class="copy-path" onclick="copyPath(this, '{{ result.filepath }}')">Copy Path</button>
                 </div>
                 <div class="code-block">
                     {{ result.content | safe }}
@@ -225,9 +225,8 @@
 
 {% block extra_scripts %}
     <script>
-        function copyPath(path) {
+        function copyPath(button, path) {
             navigator.clipboard.writeText(path).then(() => {
-                const button = event.target;
                 const originalText = button.textContent;
                 button.textContent = 'Copied!';
                 setTimeout(() => {
