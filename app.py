@@ -6,7 +6,8 @@ from langchain_community.vectorstores import Qdrant
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import requests
 from qdrant_client import QdrantClient
-from threading import Thread
+from threading import Thread, Lock
+from flask import has_request_context, current_app
 
 # Set up basic logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +16,28 @@ logger = logging.getLogger(__name__)
 logger.info('Starting the application...')
 
 repo_path = "/app/repo"
+
+# Global state for indexing progress
+indexing_progress = {
+    'current': 0,
+    'total': 0,
+    'status': 'idle',
+    'message': '',
+    'phase': 'idle',
+    'indexed_files': []
+}
+
+# Add locks for thread safety
+indexing_lock = Lock()
+docsearch_lock = Lock()
+
+# Global variable for the search index
+docsearch = None
+
+# Initialize Flask app
+app = Flask(__name__)
+app.static_folder = 'static'  # Make sure static folder is configured
+app.secret_key = os.urandom(24)  # Or use a fixed secret key if you prefer
 
 # Directories to skip
 SKIP_DIRS = {
@@ -85,42 +108,29 @@ RELEVANT_PATHS = [
     'server'
 ]
 
-# Near the top with other globals
-indexing_progress = {
-    'current': 0,
-    'total': 0,
-    'status': 'idle',  # idle, processing_files, creating_vectors, complete, error
-    'message': '',
-    'phase': 'idle',  # idle, files, vectors, complete
-    'indexed_files': []  # Add this to track files
-}
-
-# Add near the top with other globals
-VECTOR_MESSAGES = [
-    'Creating vector index... This may take a few minutes.',
-    'Creating vector index... Please wait, still indexing',
-    'Creating vector index... Don\'t leave this page',
-    'Creating vector index... Your patience is appreciated'
-]
-
 # Default settings
 DEFAULT_SETTINGS = {
-    'skip_dirs': list(SKIP_DIRS),
-    'file_patterns': list(RELEVANT_FILE_PATTERNS),
-    'priority_paths': list(RELEVANT_PATHS)
+    'file_patterns': ['.py', '.js', '.ts', '.php', '.html', '.twig', '.yaml', '.yml', '.json'],
+    'skip_dirs': list(SKIP_DIRS)
 }
 
 # Add debug logging for directory skipping
-def should_skip_directory(dirname):
-    settings = session.get('settings', DEFAULT_SETTINGS)
-    should_skip = dirname.lower() in settings['skip_dirs'] or 'cache' in dirname.lower()
+def should_skip_directory(dirname, skip_dirs=None):
+    """Check if a directory should be skipped during indexing."""
+    skip_dirs = skip_dirs or DEFAULT_SETTINGS['skip_dirs']
+    should_skip = dirname.lower() in skip_dirs or 'cache' in dirname.lower()
     if should_skip:
         logger.debug(f"Skipping directory: {dirname}")
     return should_skip
 
 # Move all the indexing code into a function
-def initialize_search():
+def initialize_search(settings=None):
+    """Initialize the search index with the given settings."""
     global indexing_progress
+    
+    # Use provided settings or defaults
+    settings = settings or DEFAULT_SETTINGS
+    
     try:
         logger.info("Starting indexing process...")
         indexing_progress['status'] = 'indexing'
@@ -138,20 +148,11 @@ def initialize_search():
         total_files = 0
         logger.info(f"Starting file scan from: {repo_path}")
         for root, dirs, files in os.walk(repo_path):
-            # Log directories being considered
-            logger.info(f"Scanning directory: {root}")
-            logger.info(f"Found directories: {', '.join(dirs)}")
-            
             # Skip unwanted directories
-            original_dirs = dirs.copy()
-            dirs[:] = [d for d in dirs if not should_skip_directory(d)]
-            if len(dirs) != len(original_dirs):
-                logger.info(f"Filtered directories from {len(original_dirs)} to {len(dirs)}")
+            dirs[:] = [d for d in dirs if not should_skip_directory(d, settings['skip_dirs'])]
             
             # Log files being counted
-            valid_files = [f for f in files if f.endswith(tuple(session.get('settings', DEFAULT_SETTINGS)['file_patterns']))]
-            if valid_files:
-                logger.info(f"Found files in {root}: {', '.join(valid_files)}")
+            valid_files = [f for f in files if f.endswith(tuple(settings['file_patterns']))]
             total_files += len(valid_files)
 
         logger.info(f"Total files to process: {total_files}")
@@ -165,10 +166,10 @@ def initialize_search():
         
         # Process files with progress
         for root, dirs, files in os.walk(repo_path):
-            dirs[:] = [d for d in dirs if not should_skip_directory(d)]
+            dirs[:] = [d for d in dirs if not should_skip_directory(d, settings['skip_dirs'])]
             
             for file in files:
-                if file.endswith(tuple(session.get('settings', DEFAULT_SETTINGS)['file_patterns'])):
+                if file.endswith(tuple(settings['file_patterns'])):
                     filepath = os.path.join(root, file)
                     rel_path = os.path.relpath(filepath, repo_path)
                     
@@ -188,8 +189,6 @@ def initialize_search():
                                     'start': current_line,
                                     'end': current_line + chunk_lines - 1
                                 })
-                                logger.info(f"Chunk from {current_line} to {current_line + chunk_lines - 1}")
-                                logger.info(f"Content: {chunk[:50]}...")
                                 current_line += chunk_lines
 
                             texts.extend(chunks)
@@ -198,7 +197,6 @@ def initialize_search():
                                 "line_start": line_nums['start'],
                                 "line_end": line_nums['end']
                             } for line_nums in line_numbers])
-                            logger.info(f"Processed {rel_path}: {len(chunks)} chunks")
                             indexing_progress['indexed_files'].append(rel_path)
                     except Exception as e:
                         logger.error(f"Error reading file {rel_path}: {e}")
@@ -206,9 +204,9 @@ def initialize_search():
         logger.info("File processing complete, starting vector creation...")
         indexing_progress.update({
             'phase': 'vectors',
-            'message': VECTOR_MESSAGES[0],  # Start with first message
-            'message_index': 0,  # Add message index to track rotation
-            'message_count': 0,  # Add counter for message rotation
+            'message': 'Creating vector index... This may take a few minutes.',
+            'message_index': 0,
+            'message_count': 0,
             'current': 0,
             'total': len(texts)
         })
@@ -230,14 +228,64 @@ def initialize_search():
         indexing_progress['message'] = str(e)
         raise
 
-# Initialize Flask app
-app = Flask(__name__)
-app.static_folder = 'static'  # Make sure static folder is configured
-# Set a secret key for session management
-app.secret_key = os.urandom(24)  # Or use a fixed secret key if you prefer
+def background_reindex():
+    """Run reindexing in a background thread."""
+    global docsearch, indexing_progress
+    try:
+        # Reset everything at start
+        indexing_progress.update({
+            'phase': 'files',
+            'status': 'processing',
+            'message': 'Processing files...',
+            'current': 0,
+            'total': 0,
+            'indexed_files': []
+        })
+        
+        # Clear existing index first
+        response = requests.delete("http://vectorstore:6333/collections/code_chunks")
+        if response.status_code != 200:
+            raise Exception(f"Failed to clear index: {response.status_code}")
+        
+        # Initialize search with thread safety
+        with docsearch_lock:
+            docsearch = initialize_search(DEFAULT_SETTINGS)
+        
+        # Mark as complete
+        indexing_progress.update({
+            'phase': 'complete',
+            'status': 'complete',
+            'message': 'Indexing complete'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error during reindex: {e}")
+        indexing_progress.update({
+            'status': 'error',
+            'phase': 'error',
+            'message': str(e)
+        })
 
-# Global variable for the search index
-docsearch = None
+@app.route('/admin/reindex', methods=['POST'])
+def force_reindex():
+    """Force a reindex of the codebase."""
+    try:
+        # Start background thread
+        thread = Thread(target=background_reindex)
+        thread.daemon = True
+        thread.start()
+        return redirect(url_for('show_progress'))
+    except Exception as e:
+        logger.error(f"Error starting reindex: {e}")
+        flash(f"Error starting reindex: {str(e)}", "error")
+        return redirect(url_for('index'))
+
+@app.route('/admin/progress')
+def show_progress():
+    """Show the current indexing progress."""
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify(indexing_progress)
+    return render_template('progress.html', indexing_progress=indexing_progress)
 
 @app.route('/')
 def index():
@@ -304,66 +352,6 @@ def collection_exists():
         logger.error(f"Error checking collection: {e}")
         return False
 
-def clear_index():
-    try:
-        response = requests.delete("http://vectorstore:6333/collections/code_chunks")
-        logger.info(f"Clear index response: {response.status_code}")
-        return response.status_code == 200
-    except Exception as e:
-        logger.error(f"Error clearing index: {e}")
-        return False
-
-def background_reindex():
-    global docsearch, indexing_progress
-    try:
-        # Reset everything at start
-        indexing_progress.update({
-            'phase': 'files',
-            'status': 'processing',
-            'message': 'Processing files...',
-            'current': 0,
-            'total': 0,
-            'indexed_files': []
-        })
-        
-        # initialize_search will handle the file processing phase
-        docsearch = initialize_search()
-        
-        # Mark as complete
-        indexing_progress.update({
-            'phase': 'complete',
-            'status': 'complete',
-            'message': 'Indexing complete'
-        })
-        
-    except Exception as e:
-        logger.error(f"Error during background reindex: {e}")
-        indexing_progress.update({
-            'status': 'error',
-            'phase': 'error',
-            'message': str(e)
-        })
-
-@app.route('/admin/reindex', methods=['POST'])
-def force_reindex():
-    try:
-        clear_index()
-        # Reset progress
-        global indexing_progress
-        indexing_progress['current'] = 0
-        indexing_progress['total'] = 0
-        indexing_progress['status'] = 'idle'
-        indexing_progress['message'] = 'Starting...'
-        
-        # Start indexing in background
-        Thread(target=background_reindex).start()
-        
-        return redirect(url_for('show_progress'))
-    except Exception as e:
-        logger.error(f"Error during reindex: {e}")
-        flash(f"Error during reindex: {str(e)}", "error")
-        return redirect(url_for('index'))
-
 @app.route('/admin/clear', methods=['POST'])
 def admin_clear_index():
     global docsearch
@@ -378,34 +366,6 @@ def admin_clear_index():
         logger.error(f"Error clearing index: {e}")
         flash(f"Error clearing index: {str(e)}", "error")
         return redirect(url_for('index'))
-
-@app.route('/admin/progress')
-def show_progress():
-    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or \
-              request.headers.get('Accept') == 'application/json'
-    
-    if is_ajax:
-        # Rotate message if in vector phase, but only every 20th request
-        if indexing_progress['phase'] == 'vectors':
-            current_count = indexing_progress.get('message_count', 0)
-            if current_count % 20 == 0:  # Only update every 20th request
-                current_idx = indexing_progress.get('message_index', 0)
-                next_idx = (current_idx + 1) % len(VECTOR_MESSAGES)
-                indexing_progress['message'] = VECTOR_MESSAGES[next_idx]
-                indexing_progress['message_index'] = next_idx
-            indexing_progress['message_count'] = current_count + 1
-
-        response = {
-            'phase': indexing_progress['phase'],
-            'status': indexing_progress['status'],
-            'message': indexing_progress['message'],
-            'current': indexing_progress['current'],
-            'total': indexing_progress['total'],
-            'indexed_files': list(indexing_progress['indexed_files'])
-        }
-        return jsonify(response)
-    else:
-        return render_template('progress.html', indexing_progress=indexing_progress)
 
 @app.route('/admin/settings')
 def show_settings():
