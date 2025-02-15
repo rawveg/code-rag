@@ -49,6 +49,8 @@ SKIP_DIRS = {
     'composer',
     'yarn',
     'npm',
+    'venv',
+    'storage',
     
     # Build outputs and caches
     'dist',
@@ -350,6 +352,14 @@ def collection_exists():
         return response.status_code == 200
     except Exception as e:
         logger.error(f"Error checking collection: {e}")
+        return False
+
+def clear_index():
+    try:
+        response = requests.delete("http://vectorstore:6333/collections/code_chunks")
+        return response.status_code == 200
+    except Exception as e:
+        logger.error(f"Failed to clear index: {e}")
         return False
 
 @app.route('/admin/clear', methods=['POST'])
