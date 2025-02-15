@@ -27,6 +27,14 @@ indexing_progress = {
     'indexed_files': []
 }
 
+# Messages to cycle through during vector creation
+VECTOR_MESSAGES = [
+    'Creating vector index... This may take a few minutes.',
+    'Creating vector index... Please wait, still indexing',
+    'Creating vector index... Don\'t leave this page',
+    'Creating vector index... Your patience is appreciated'
+]
+
 # Add locks for thread safety
 indexing_lock = Lock()
 docsearch_lock = Lock()
@@ -162,6 +170,7 @@ def initialize_search(settings=None):
         indexing_progress['total'] = total_files
         indexing_progress['current'] = 0
         indexing_progress['message'] = 'Processing files...'
+        indexing_progress['indexed_files'] = []
 
         texts = []
         metadatas = []
@@ -206,17 +215,39 @@ def initialize_search(settings=None):
         logger.info("File processing complete, starting vector creation...")
         indexing_progress.update({
             'phase': 'vectors',
-            'message': 'Creating vector index... This may take a few minutes.',
+            'message': VECTOR_MESSAGES[0],
             'message_index': 0,
             'message_count': 0,
             'current': 0,
             'total': len(texts)
         })
         
+        # Process texts in batches to show progress
+        batch_size = 100
+        processed_texts = []
+        processed_metadatas = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i+batch_size]
+            batch_metadatas = metadatas[i:i+batch_size]
+            
+            # Update progress
+            indexing_progress.update({
+                'current': i,
+                'total': len(texts),
+                'message': VECTOR_MESSAGES[indexing_progress.get('message_index', 0)]
+            })
+            logger.info(f"Processing vectors batch: {i}/{len(texts)}")
+            
+            # Process batch
+            processed_texts.extend(batch_texts)
+            processed_metadatas.extend(batch_metadatas)
+        
+        # Create the final vector store
         result = Qdrant.from_texts(
-            texts,
+            processed_texts,
             embeddings,
-            metadatas=metadatas,
+            metadatas=processed_metadatas,
             location="http://vectorstore:6333",
             collection_name="code_chunks",
             prefer_grpc=False,
@@ -285,8 +316,28 @@ def force_reindex():
 @app.route('/admin/progress')
 def show_progress():
     """Show the current indexing progress."""
-    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-        return jsonify(indexing_progress)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    if is_ajax:
+        # Rotate message if in vector phase
+        if indexing_progress['phase'] == 'vectors':
+            current_count = indexing_progress.get('message_count', 0)
+            if current_count % 20 == 0:  # Update message every 20th request
+                current_idx = indexing_progress.get('message_index', 0)
+                next_idx = (current_idx + 1) % len(VECTOR_MESSAGES)
+                indexing_progress['message'] = VECTOR_MESSAGES[next_idx]
+                indexing_progress['message_index'] = next_idx
+            indexing_progress['message_count'] = current_count + 1
+            
+        return jsonify({
+            'phase': indexing_progress['phase'],
+            'status': indexing_progress['status'],
+            'message': indexing_progress['message'],
+            'current': indexing_progress['current'],
+            'total': indexing_progress['total'],
+            'indexed_files': list(indexing_progress['indexed_files'])
+        })
+    
     return render_template('progress.html', indexing_progress=indexing_progress)
 
 @app.route('/')

@@ -172,6 +172,7 @@
                     progressFill.style.width = percent + '%';
                 } else if (data.phase === 'vectors') {
                     progressBar.classList.add('indeterminate');
+                    progressFill.style.width = '50%';  // Ensure fill is visible for animation
                 }
 
                 // Update message
