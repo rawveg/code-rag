@@ -56,9 +56,20 @@
 
     .indexed-files {
         margin-top: 2em;
-        border: 1px solid var(--border-color);
+        border: 1px solid;
+        border-color: #000000 !important;
         border-radius: 8px;
         padding: 1em;
+    }
+
+    :root[data-theme="dark"] .indexed-files {
+        border-color: #404040 !important;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme]) .indexed-files {
+            border-color: #404040 !important;
+        }
     }
 
     .indexed-files summary {
@@ -172,6 +183,7 @@
                     progressFill.style.width = percent + '%';
                 } else if (data.phase === 'vectors') {
                     progressBar.classList.add('indeterminate');
+                    progressFill.style.width = '50%';  // Ensure fill is visible for animation
                 }
 
                 // Update message
