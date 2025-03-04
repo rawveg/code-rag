@@ -7,6 +7,21 @@
         --progress-radius: 10px;
         --progress-bg: var(--bg-secondary);
         --progress-fill: var(--primary-color);
+        --error-bg: #ffeeee;
+        --error-text: #cc0000;
+    }
+
+    /* Dark mode error colors */
+    :root[data-theme="dark"] {
+        --error-bg: #3a1c1c;
+        --error-text: #ff6b6b;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme]) {
+            --error-bg: #3a1c1c;
+            --error-text: #ff6b6b;
+        }
     }
 
     .container {
@@ -120,6 +135,31 @@
     .completion-message.visible {
         display: block;
     }
+    
+    .error-message {
+        margin-top: 1em;
+        padding: 1em;
+        background-color: var(--error-bg);
+        color: var(--error-text);
+        border-radius: 4px;
+        white-space: pre-line;
+        display: none;
+        font-family: monospace;
+        line-height: 1.5;
+    }
+    
+    .error-message.visible {
+        display: block;
+    }
+    
+    .error-message-content {
+        margin-bottom: 1em;
+    }
+    
+    .error-message-hint {
+        margin-top: 1em;
+        font-weight: bold;
+    }
 </style>
 {% endblock %}
 
@@ -129,15 +169,21 @@
 
         <div class="progress-container">
             <div class="progress-bar {% if indexing_progress.phase == 'vectors' %}indeterminate{% endif %}">
-                <div class="progress-fill" id="progress-fill"></div>
+                <div class="progress-fill" id="progress-fill" style="{% if indexing_progress.status == 'error' %}width: 0%;{% elif indexing_progress.phase == 'complete' %}width: 100%;{% else %}width: {{ (indexing_progress.current / indexing_progress.total * 100) if indexing_progress.total > 0 else 0 }}%;{% endif %}"></div>
             </div>
             <div class="status-message" id="status-message">{{ indexing_progress.message }}</div>
-            <div class="completion-message" id="completion-message">
+            <div class="completion-message" id="completion-message" {% if indexing_progress.phase == 'complete' %}class="completion-message visible"{% else %}class="completion-message"{% endif %}">
                 Indexing completed successfully! You can now return to the search page or review the indexed files below.
+            </div>
+            <div class="error-message" id="error-message" {% if indexing_progress.status == 'error' %}class="error-message visible"{% else %}class="error-message"{% endif %}>
+                <div class="error-message-content" id="error-message-content">{{ indexing_progress.message if indexing_progress.status == 'error' else '' }}</div>
+                <div class="error-message-hint">
+                    Please check your docker-compose.yml file to ensure volume mappings are correctly configured.
+                </div>
             </div>
         </div>
 
-        <details class="indexed-files">
+        <details class="indexed-files" {% if indexing_progress.status == 'error' and indexing_progress.indexed_files|length == 0 %}style="display: none;"{% endif %}>
             <summary>Details (<span id="files-count">{{ indexing_progress.indexed_files|length }}</span> files)</summary>
             <div class="files-list">
                 {% for file in indexing_progress.indexed_files %}
@@ -195,12 +241,27 @@
                     `<div class="file-entry">${file}</div>`
                 ).join('');
 
-                // Handle completion
+                // Handle completion or error
                 if (data.phase === 'complete') {
                     progressBar.classList.remove('indeterminate');
                     progressFill.style.width = '100%';
                     completionMessage.classList.add('visible');
-                } else if (data.status !== 'error') {
+                } else if (data.status === 'error') {
+                    // Handle error state
+                    progressBar.classList.remove('indeterminate');
+                    progressFill.style.width = '0%';
+                    
+                    // Show error message
+                    const errorMessage = document.getElementById('error-message');
+                    const errorContent = document.getElementById('error-message-content');
+                    errorContent.textContent = data.message;
+                    errorMessage.classList.add('visible');
+                    
+                    // Hide details if there are no files
+                    if (data.indexed_files.length === 0) {
+                        detailsSection.style.display = 'none';
+                    }
+                } else {
                     setTimeout(updateProgress, 500);
                 }
             })

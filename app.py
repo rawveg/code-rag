@@ -146,6 +146,60 @@ def initialize_search(settings=None):
         indexing_progress['status'] = 'indexing'
         indexing_progress['phase'] = 'files'  # Explicitly set phase
         logger.info(f"Current phase: {indexing_progress['phase']}")
+        
+        # Validate repository path exists
+        if not os.path.exists(repo_path):
+            error_msg = (
+                f"Repository path '{repo_path}' does not exist. "
+                f"This may be due to incorrect volume mapping in docker-compose.yml. "
+                f"Please check that your volume mapping includes both the host path "
+                f"AND the container path (e.g., '/path/on/host:/app/repo')."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+            
+        # Validate repository has indexable content
+        indexing_progress['message'] = 'Validating repository content...'
+        has_indexable_files = False
+        
+        # Check first level directories to make sure we have something to index
+        for root, dirs, files in os.walk(repo_path, topdown=True):
+            # Skip unwanted directories
+            dirs[:] = [d for d in dirs if not should_skip_directory(d, settings['skip_dirs'])]
+            
+            # Check if there are valid files at this level
+            valid_files = [f for f in files if f.endswith(tuple(settings['file_patterns']))]
+            if valid_files:
+                has_indexable_files = True
+                break
+                
+            # Only check the first level directories to avoid a full scan
+            if root != repo_path:
+                for d in dirs:
+                    # Just check if there are any potential indexable files
+                    subdir = os.path.join(root, d)
+                    subdir_files = os.listdir(subdir)
+                    if any(f.endswith(tuple(settings['file_patterns'])) for f in subdir_files):
+                        has_indexable_files = True
+                        break
+                
+            # If we found files, we can stop checking
+            if has_indexable_files:
+                break
+                
+        if not has_indexable_files:
+            error_msg = (
+                "No indexable files found in the repository. "
+                "This could be due to one of the following reasons:\n"
+                "1. The repository directory is empty\n"
+                "2. The volume mapping in docker-compose.yml is incorrect\n"
+                "3. Your repository doesn't contain files with the extensions specified in settings\n\n"
+                "Please check your docker-compose.yml file and ensure the volume mapping is correctly specified "
+                "as '/path/on/host:/app/repo'. Also verify that your repository contains files with the configured extensions."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
         embeddings = SentenceTransformerEmbeddings()
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=2000,
@@ -291,13 +345,38 @@ def background_reindex():
             'message': 'Indexing complete'
         })
         
-    except Exception as e:
-        logger.error(f"Error during reindex: {e}")
+    except ValueError as e:
+        # Handle validation errors (like missing repo or no files)
+        logger.error(f"Validation error during reindex: {e}")
         indexing_progress.update({
             'status': 'error',
             'phase': 'error',
             'message': str(e)
         })
+    except Exception as e:
+        # Handle other errors
+        logger.error(f"Error during reindex: {e}")
+        
+        # Check if it's a "list index out of range" error which is likely due to no files
+        if "list index out of range" in str(e):
+            error_msg = (
+                "List index out of range error: No files to index. "
+                "This could be due to incorrect volume mapping in docker-compose.yml. "
+                "Please check that your volume mapping includes both the host path "
+                "AND the container path (e.g., '/path/on/host:/app/repo')."
+            )
+            logger.error(error_msg)
+            indexing_progress.update({
+                'status': 'error',
+                'phase': 'error',
+                'message': error_msg
+            })
+        else:
+            indexing_progress.update({
+                'status': 'error',
+                'phase': 'error',
+                'message': str(e)
+            })
 
 @app.route('/admin/reindex', methods=['POST'])
 def force_reindex():
